@@ -111,6 +111,7 @@ def anillo_de(solicitud_id: str, profundidad: int = 8) -> List[Dict[str, Any]]:
     return ejecutar_lectura(
         """
         MATCH (s:Solicitud {{id: $id}})-[:{rel}*1..{n}]-(otra:Solicitud)
+        WHERE otra.id <> $id
         RETURN DISTINCT otra.id        AS id,
                otra.estatus            AS estatus,
                otra.score_riesgo       AS score_riesgo
@@ -131,6 +132,7 @@ def personas_del_anillo(
         """
         MATCH (s:Solicitud {{id: $id}})
         OPTIONAL MATCH (s)-[:{rel}*1..{n}]-(otra:Solicitud)
+        WHERE otra.id <> $id
         WITH collect(DISTINCT otra) + collect(DISTINCT s) AS solicitudes
         UNWIND solicitudes AS sol
         MATCH (sol)-[:PRESENTADA_POR]->(p:Persona)

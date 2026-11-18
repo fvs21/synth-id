@@ -19,7 +19,7 @@ ver. Eso es exactamente lo que un grafo hace bien y una tabla no.
 | 2 | Datos semilla con anillos sembrados | Listo |
 | 3 | CRUD completo (read / update / delete) | Listo |
 | 4 | Módulo de detección y scoring | Listo |
-| 5 | API FastAPI y demo guiada | Pendiente |
+| 5 | API FastAPI y demo guiada | Listo |
 | 6 | Documento de justificación NoSQL | Pendiente |
 
 ## Puesta en marcha
@@ -233,7 +233,7 @@ Resultados medidos sobre los datos semilla:
 | `SOL-B-01` | 96.9 | ALTO | Dispositivo compartido con 7 |
 | `SOL-D-01` | 96.3 | ALTO | CLABE compartida con 4 |
 | `SOL-C-01` | 72.0 | ALTO | Teléfono compartido con 1, en un clúster de 5 |
-| `SOL-E-01` | 19.5 | **BAJO** | Mitigado como familia |
+| `SOL-E-01` | 18.1 | **BAJO** | Mitigado como familia |
 | `SOL-L-0001` | 0.0 | BAJO | Sin atributos compartidos |
 
 El caso interesante es `SOL-C-01`: por sí sola, compartir un teléfono con una
@@ -244,11 +244,67 @@ existe sin el grafo.
 ### La mitigación familiar
 
 Un domicilio y un teléfono fijo compartidos por tres personas del mismo
-apellido es una familia, no un anillo. Sin esta regla el anillo E sale en 78
-puntos (ALTO), que sería un falso positivo caro: se le niega el crédito a tres
-clientes legítimos. La regla es deliberadamente estrecha — solo aplica si
-**ningún** identificador fuerte está compartido — porque una familia también
-puede cometer fraude.
+apellido es una familia, no un anillo. Sin esta regla el anillo E sale en
+**72.4 puntos (ALTO)**, que sería un falso positivo caro: se le niega el
+crédito a tres clientes legítimos. La regla es deliberadamente estrecha —
+solo aplica si **ningún** identificador fuerte está compartido — porque una
+familia también puede cometer fraude.
+
+## La API
+
+```bash
+uvicorn src.api:app --reload
+```
+
+El Swagger autogenerado queda en <http://127.0.0.1:8000/docs> y es la mejor
+superficie para la demo: se hace clic en cada endpoint y se ve el CRUD y los
+traversals en vivo, sin teclear comandos.
+
+| Método | Ruta | Qué hace |
+|---|---|---|
+| `POST` | `/solicitudes` | Alta, y devuelve el score calculado en el acto |
+| `GET` | `/solicitudes` | Listado paginado, filtrable por estatus |
+| `GET` | `/solicitudes/{id}` | Expediente completo |
+| `PATCH` | `/solicitudes/{id}/estatus` | Decisión del analista |
+| `PATCH` | `/solicitudes/{id}/telefono` | Reapunta la relación a otro nodo |
+| `DELETE` | `/solicitudes/{id}` | Baja + purga de huérfanos |
+| `GET` | `/solicitudes/{id}/riesgo` | Score con los motivos que lo explican |
+| `GET` | `/solicitudes/{id}/anillo` | Clúster completo vía traversal |
+| `GET` | `/investigacion/ruta?a=&b=` | Cadena de evidencia (`shortestPath`) |
+| `GET` | `/alertas/curps-multiples` | CURPs con varios nombres |
+| `GET` | `/alertas/hubs?tipo=` | Atributos con grado anómalo |
+| `GET` | `/alertas/anillos` | Barrido global |
+| `GET` | `/salud` | Verifica que la API alcanza la nube |
+
+Dos decisiones que vale la pena señalar:
+
+**Los endpoints son `def`, no `async def`.** El driver de Neo4j es síncrono y
+bloqueante. Declarado `async def`, una consulta lenta bloquearía el event loop
+y con él *todas* las peticiones concurrentes; declarado `def`, FastAPI lo
+ejecuta en su threadpool y el bloqueo queda aislado a un hilo.
+
+**Los endpoints de riesgo verifican existencia antes de evaluar.** Sin esa
+comprobación, un id inexistente devolvería `score 0 / nivel BAJO`: una
+respuesta plausible y equivocada. Ahora devuelve 404.
+
+Códigos verificados contra la instancia real: 200, 404 (inexistente y ruta sin
+camino), 409 (id duplicado) y 422 (formato inválido y tipo de hub no
+soportado).
+
+## La demo guiada
+
+```bash
+python scripts/demo.py            # recorrido completo
+python scripts/demo.py --pausar   # espera Enter entre pasos
+python scripts/demo.py --limpiar  # quita restos de una corrida interrumpida
+```
+
+Seis pasos: alta limpia (score 0) → alta que cae en el anillo B (96.9) →
+traversal del clúster → cadena de evidencia de 8 saltos del anillo C →
+barrido de alertas → el falso positivo del anillo E y la discusión del umbral.
+
+Las solicitudes que crea usan el prefijo `SOL-DEMO-` y se borran al terminar,
+así que la base queda en 427.
 
 ## Tests
 
@@ -256,7 +312,7 @@ puede cometer fraude.
 python -m pytest tests/ -v
 ```
 
-23 tests de integración contra la instancia real (no hay mocks: lo que hay
+25 tests de integración contra la instancia real (no hay mocks: lo que hay
 que verificar es que el Cypher se comporta como se cree contra el motor).
 Requieren el seed cargado. Cada test de CRUD limpia lo que crea, borrando por
 prefijo `SOL-TEST-` con un `MATCH` directo.
@@ -281,7 +337,9 @@ prefijo `SOL-TEST-` con un `MATCH` directo.
 │   ├── schema.py       # constraints e índices
 │   ├── repository.py   # CRUD completo (el MERGE que teje la red)
 │   ├── detection.py    # las seis consultas de grafo
-│   └── scoring.py      # score de riesgo y mitigación familiar
+│   ├── scoring.py      # score de riesgo y mitigación familiar
+│   ├── models.py       # esquemas Pydantic de la API
+│   └── api.py          # endpoints FastAPI
 ├── tests/
 │   ├── conftest.py
 │   ├── test_crud.py
@@ -290,6 +348,7 @@ prefijo `SOL-TEST-` con un `MATCH` directo.
 │   ├── check_conexion.py
 │   ├── init_db.py
 │   ├── seed.py         # generador de las dos capas de datos
+│   ├── demo.py         # recorrido narrado para la evaluación
 │   └── reset_db.py
 ├── docs/
 │   └── anillos_sembrados.json   # generado por el seed

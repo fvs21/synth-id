@@ -121,6 +121,32 @@ def test_anillo_e_solo_comparte_atributos_de_hogar(anillos):
     )
 
 
+def test_el_anillo_no_se_incluye_a_si_mismo(anillos):
+    """Regresion: el origen aparecia en su propio anillo si habia un ciclo.
+
+    La familia del anillo E se conecta por DOS atributos (telefono y
+    domicilio), asi que existe el ciclo E-01 -tel- E-02 -domicilio- E-01.
+    Son cuatro relaciones distintas, por lo que la unicidad de relaciones de
+    Cypher no lo impide y `otra` hacia match con el propio origen, inflando
+    el tamano del cluster. Los anillos B y C no tienen ciclos, que es la
+    razon por la que los demas tests no lo detectaron.
+    """
+    for letra in "ABCDE":
+        for solicitud in anillos[letra]["solicitudes"]:
+            alcanzadas = {fila["id"] for fila in anillo_de(solicitud)}
+
+            assert solicitud not in alcanzadas, (
+                "{} se incluye en su propio anillo".format(solicitud)
+            )
+
+
+def test_anillo_e_tamano_real_del_cluster(anillos):
+    """La familia son tres solicitudes, ni una mas."""
+    resultado = evaluar(anillos["E"]["solicitudes"][0])
+
+    assert resultado["tamano_anillo"] == 3
+
+
 def test_anillo_e_se_mitiga_como_familia(anillos):
     for solicitud in anillos["E"]["solicitudes"]:
         resultado = evaluar(solicitud)

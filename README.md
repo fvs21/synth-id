@@ -17,8 +17,8 @@ ver. Eso es exactamente lo que un grafo hace bien y una tabla no.
 | 0 | Conexión a AuraDB y configuración | Listo |
 | 1 | Esquema: constraints e índices | Listo |
 | 2 | Datos semilla con anillos sembrados | Listo |
-| 3 | CRUD completo (read / update / delete) | Pendiente |
-| 4 | Módulo de detección y scoring | Pendiente |
+| 3 | CRUD completo (read / update / delete) | Listo |
+| 4 | Módulo de detección y scoring | Listo |
 | 5 | API FastAPI y demo guiada | Pendiente |
 | 6 | Documento de justificación NoSQL | Pendiente |
 
@@ -195,6 +195,72 @@ cuota de Aura mientras se afinaba el Cypher:
   positivos entre las 400 legítimas. `shortestPath` entre los extremos del
   anillo C devuelve los 8 saltos con la cadena de evidencia completa.
 
+## Las seis consultas especializadas
+
+En `src/detection.py`. Todas recorren solo `REL_PII`, la lista blanca de
+relaciones a atributos **identificadores**, y todas llevan cota de
+profundidad explícita.
+
+| Función | Paradigma | Qué responde |
+|---|---|---|
+| `atributos_compartidos(id)` | Vecindad a 2 saltos | ¿Con quién comparte PII esta solicitud? |
+| `anillo_de(id, profundidad)` | Traversal de longitud variable | ¿Quiénes forman su clúster completo? |
+| `ruta_entre(a, b)` | `shortestPath` | ¿Cómo se conectan dos solicitudes "ajenas"? |
+| `curps_multiples()` | Agregación sobre vecinos | ¿Qué CURP tiene varios nombres? |
+| `hubs(tipo, mínimo)` | Grado anómalo | ¿Qué atributo usan demasiadas personas? |
+| `anillos_globales()` | Barrido de la base | Tablero del analista, sin partir de una solicitud |
+
+`atributos_compartidos` usa `*1..2` porque la CURP pende de la `Persona`, no
+de la `Solicitud`. Las cotas se interpolan en el Cypher (y se validan como
+enteros antes) porque Cypher **no acepta parámetros en los rangos de
+longitud**: `*1..$n` es inválido.
+
+## El score de riesgo
+
+En `src/scoring.py`. Las señales no se suman: se combinan como probabilidades
+independientes (noisy-OR), `riesgo = 1 - Π(1 - pᵢ)`. Sumar desborda rápido y
+obliga a recortar en 100, con lo que dos señales fuertes y cinco se vuelven
+indistinguibles; con noisy-OR cada señal nueva aporta cada vez menos, que es
+como funciona la evidencia acumulada. El peso de cada atributo refleja cuánto
+cuesta compartirlo por casualidad: CURP 0.50, CLABE 0.45, dispositivo 0.40,
+teléfono y email 0.30, domicilio 0.10.
+
+Resultados medidos sobre los datos semilla:
+
+| Solicitud | Score | Nivel | Señal principal |
+|---|---|---|---|
+| `SOL-A-01` | 98.8 | ALTO | CURP compartida con 5 solicitudes |
+| `SOL-B-01` | 96.9 | ALTO | Dispositivo compartido con 7 |
+| `SOL-D-01` | 96.3 | ALTO | CLABE compartida con 4 |
+| `SOL-C-01` | 72.0 | ALTO | Teléfono compartido con 1, en un clúster de 5 |
+| `SOL-E-01` | 19.5 | **BAJO** | Mitigado como familia |
+| `SOL-L-0001` | 0.0 | BAJO | Sin atributos compartidos |
+
+El caso interesante es `SOL-C-01`: por sí sola, compartir un teléfono con una
+sola solicitud es una señal débil. Lo que la eleva a ALTO es el **tamaño del
+clúster** que revela el traversal — pertenece a una cadena de 5. Esa señal no
+existe sin el grafo.
+
+### La mitigación familiar
+
+Un domicilio y un teléfono fijo compartidos por tres personas del mismo
+apellido es una familia, no un anillo. Sin esta regla el anillo E sale en 78
+puntos (ALTO), que sería un falso positivo caro: se le niega el crédito a tres
+clientes legítimos. La regla es deliberadamente estrecha — solo aplica si
+**ningún** identificador fuerte está compartido — porque una familia también
+puede cometer fraude.
+
+## Tests
+
+```bash
+python -m pytest tests/ -v
+```
+
+23 tests de integración contra la instancia real (no hay mocks: lo que hay
+que verificar es que el Cypher se comporta como se cree contra el motor).
+Requieren el seed cargado. Cada test de CRUD limpia lo que crea, borrando por
+prefijo `SOL-TEST-` con un `MATCH` directo.
+
 ## Operación
 
 - **AuraDB Free pausa la instancia tras 3 días de inactividad.** Reanúdala en
@@ -213,7 +279,13 @@ cuota de Aura mientras se afinaba el Cypher:
 │   ├── config.py       # carga y validación del .env
 │   ├── db.py           # driver Neo4j, sesiones, helpers de lectura/escritura
 │   ├── schema.py       # constraints e índices
-│   └── repository.py   # alta de solicitudes (el MERGE que teje la red)
+│   ├── repository.py   # CRUD completo (el MERGE que teje la red)
+│   ├── detection.py    # las seis consultas de grafo
+│   └── scoring.py      # score de riesgo y mitigación familiar
+├── tests/
+│   ├── conftest.py
+│   ├── test_crud.py
+│   └── test_detection.py
 ├── scripts/
 │   ├── check_conexion.py
 │   ├── init_db.py

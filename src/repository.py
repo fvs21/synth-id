@@ -197,33 +197,205 @@ def contar_entidades() -> Dict[str, int]:
     return conteo
 
 
-def obtener_solicitud_cruda(solicitud_id: str) -> Optional[Dict[str, Any]]:
-    """Lectura minima de una solicitud con su PII a un salto.
-
-    Version reducida; la lectura completa del expediente llega en la Fase 3.
-    """
+# --------------------------------------------------------------------------
+# READ
+# --------------------------------------------------------------------------
+def obtener_solicitud(solicitud_id: str) -> Optional[Dict[str, Any]]:
+    """Expediente completo: la solicitud con todo su PII a un salto."""
     filas = ejecutar_lectura(
         """
         MATCH (s:Solicitud {id: $id})-[:PRESENTADA_POR]->(p:Persona)
         OPTIONAL MATCH (p)-[:TIENE_CURP]->(c:Curp)
+        OPTIONAL MATCH (p)-[:TRABAJA_EN]->(emp:Empleador)
         OPTIONAL MATCH (s)-[:USA_TELEFONO]->(t:Telefono)
         OPTIONAL MATCH (s)-[:USA_EMAIL]->(e:Email)
         OPTIONAL MATCH (s)-[:RESIDE_EN]->(d:Domicilio)
         OPTIONAL MATCH (s)-[:ORIGINADA_EN]->(dev:Dispositivo)
         OPTIONAL MATCH (s)-[:DEPOSITO_A]->(b:CuentaBanco)
-        RETURN s.id              AS id,
-               toString(s.fecha) AS fecha,
-               s.monto_solicitado AS monto,
-               s.estatus         AS estatus,
-               s.score_riesgo    AS score_riesgo,
-               p.nombre_completo AS solicitante,
-               c.valor           AS curp,
-               t.numero          AS telefono,
-               e.direccion       AS email,
-               d.calle + ', ' + d.ciudad AS domicilio,
-               dev.fingerprint   AS dispositivo,
-               b.clabe           AS cuenta_deposito
+        RETURN s.id               AS id,
+               toString(s.fecha)  AS fecha,
+               s.monto_solicitado AS monto_solicitado,
+               s.estatus          AS estatus,
+               s.score_riesgo     AS score_riesgo,
+               p.id               AS persona_id,
+               p.nombre_completo  AS solicitante,
+               toString(p.fecha_nacimiento) AS fecha_nacimiento,
+               c.valor            AS curp,
+               t.numero           AS telefono,
+               e.direccion        AS email,
+               d.calle            AS calle,
+               d.cp               AS cp,
+               d.ciudad           AS ciudad,
+               dev.fingerprint    AS dispositivo,
+               dev.tipo           AS tipo_dispositivo,
+               b.clabe            AS cuenta_deposito,
+               emp.nombre         AS empleador
         """,
         id=solicitud_id,
     )
     return filas[0] if filas else None
+
+
+def listar_solicitudes(
+    limite: int = 20,
+    desplazamiento: int = 0,
+    estatus: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Listado paginado, opcionalmente filtrado por estatus."""
+    if estatus is not None and estatus not in ESTATUS_VALIDOS:
+        raise ValueError(
+            "Estatus invalido: {!r}. Validos: {}".format(
+                estatus, ", ".join(ESTATUS_VALIDOS)
+            )
+        )
+
+    return ejecutar_lectura(
+        """
+        MATCH (s:Solicitud)
+        WHERE $estatus IS NULL OR s.estatus = $estatus
+        MATCH (s)-[:PRESENTADA_POR]->(p:Persona)
+        RETURN s.id               AS id,
+               toString(s.fecha)  AS fecha,
+               s.monto_solicitado AS monto_solicitado,
+               s.estatus          AS estatus,
+               s.score_riesgo     AS score_riesgo,
+               p.nombre_completo  AS solicitante
+        ORDER BY s.id
+        SKIP $desplazamiento
+        LIMIT $limite
+        """,
+        estatus=estatus,
+        desplazamiento=desplazamiento,
+        limite=limite,
+    )
+
+
+def contar_solicitudes(estatus: Optional[str] = None) -> int:
+    filas = ejecutar_lectura(
+        """
+        MATCH (s:Solicitud)
+        WHERE $estatus IS NULL OR s.estatus = $estatus
+        RETURN count(s) AS total
+        """,
+        estatus=estatus,
+    )
+    return filas[0]["total"] if filas else 0
+
+
+# --------------------------------------------------------------------------
+# UPDATE
+# --------------------------------------------------------------------------
+def actualizar_estatus(solicitud_id: str, estatus: str) -> Optional[Dict[str, Any]]:
+    """Cambia el estatus de una solicitud (la decision del analista)."""
+    if estatus not in ESTATUS_VALIDOS:
+        raise ValueError(
+            "Estatus invalido: {!r}. Validos: {}".format(
+                estatus, ", ".join(ESTATUS_VALIDOS)
+            )
+        )
+
+    filas = ejecutar_escritura(
+        """
+        MATCH (s:Solicitud {id: $id})
+        SET s.estatus = $estatus
+        RETURN s.id AS id, s.estatus AS estatus
+        """,
+        id=solicitud_id,
+        estatus=estatus,
+    )
+    return filas[0] if filas else None
+
+
+def guardar_score(solicitud_id: str, score: float) -> Optional[Dict[str, Any]]:
+    """Persiste el score de riesgo calculado por el modulo de deteccion."""
+    filas = ejecutar_escritura(
+        """
+        MATCH (s:Solicitud {id: $id})
+        SET s.score_riesgo = $score
+        RETURN s.id AS id, s.score_riesgo AS score_riesgo
+        """,
+        id=solicitud_id,
+        score=score,
+    )
+    return filas[0] if filas else None
+
+
+def actualizar_telefono(
+    solicitud_id: str, telefono: str
+) -> Optional[Dict[str, Any]]:
+    """Cambia el telefono REAPUNTANDO la relacion a otro nodo.
+
+    Esto es lo que distingue a un grafo de una tabla: el telefono no es un
+    campo que se sobreescribe, es una entidad distinta. Al reapuntar, la
+    solicitud se desvincula de un vecindario y se vincula a otro, asi que su
+    riesgo puede cambiar sin que nada mas en el grafo se haya tocado.
+    """
+    filas = ejecutar_escritura(
+        """
+        MATCH (s:Solicitud {id: $id})-[r:USA_TELEFONO]->(viejo:Telefono)
+        MERGE (nuevo:Telefono {numero: $telefono})
+        DELETE r
+        MERGE (s)-[:USA_TELEFONO]->(nuevo)
+        RETURN s.id        AS id,
+               viejo.numero AS telefono_anterior,
+               nuevo.numero AS telefono_nuevo
+        """,
+        id=solicitud_id,
+        telefono=telefono,
+    )
+    return filas[0] if filas else None
+
+
+# --------------------------------------------------------------------------
+# DELETE
+# --------------------------------------------------------------------------
+def eliminar_solicitud(solicitud_id: str) -> Optional[str]:
+    """Borra la solicitud y sus relaciones. Devuelve su id, o None si no existe.
+
+    No borra el PII: un telefono puede seguir vivo porque otra solicitud lo
+    usa. La limpieza de nodos que se quedaron sin dueno va aparte, en
+    `purgar_huerfanos()`.
+    """
+    filas = ejecutar_escritura(
+        """
+        MATCH (s:Solicitud {id: $id})
+        WITH s, s.id AS id
+        DETACH DELETE s
+        RETURN id
+        """,
+        id=solicitud_id,
+    )
+    return filas[0]["id"] if filas else None
+
+
+def purgar_huerfanos() -> Dict[str, int]:
+    """Elimina personas y nodos de PII que se quedaron sin ninguna solicitud.
+
+    Se corre despues de un borrado. El orden importa: primero las personas,
+    porque al irse dejan huerfanos su CURP y su empleador.
+    """
+    personas = ejecutar_escritura(
+        """
+        MATCH (p:Persona)
+        WHERE NOT (p)<-[:PRESENTADA_POR]-()
+        WITH p, count(*) AS _
+        DETACH DELETE p
+        RETURN count(*) AS eliminados
+        """
+    )
+
+    pii = ejecutar_escritura(
+        """
+        MATCH (n)
+        WHERE (n:Telefono OR n:Email OR n:Domicilio OR n:Dispositivo
+               OR n:CuentaBanco OR n:Curp OR n:Empleador)
+          AND NOT ()-->(n)
+        DELETE n
+        RETURN count(*) AS eliminados
+        """
+    )
+
+    return {
+        "personas": personas[0]["eliminados"] if personas else 0,
+        "nodos_pii": pii[0]["eliminados"] if pii else 0,
+    }

@@ -1,0 +1,89 @@
+[
+  {
+    "anillo": "A",
+    "nombre": "Granja de CURP",
+    "detecta_con": "consulta 4 (una CURP, varios nombres)",
+    "valor_compartido": {
+      "Curp": "UOCB970228MCSHPD30"
+    },
+    "solicitudes": [
+      "SOL-A-01",
+      "SOL-A-02",
+      "SOL-A-03",
+      "SOL-A-04",
+      "SOL-A-05",
+      "SOL-A-06"
+    ]
+  },
+  {
+    "anillo": "B",
+    "nombre": "Dispositivo compartido",
+    "detecta_con": "consulta 5 (nodos hub con grado anomalo)",
+    "valor_compartido": {
+      "Dispositivo": "222d4b8cbc0a3b64"
+    },
+    "solicitudes": [
+      "SOL-B-01",
+      "SOL-B-02",
+      "SOL-B-03",
+      "SOL-B-04",
+      "SOL-B-05",
+      "SOL-B-06",
+      "SOL-B-07",
+      "SOL-B-08"
+    ]
+  },
+  {
+    "anillo": "C",
+    "nombre": "Cadena larga",
+    "detecta_con": "consulta 2 (traversal *1..8) y consulta 3 (shortestPath)",
+    "extremos": {
+      "desde": "SOL-C-01",
+      "hasta": "SOL-C-05",
+      "saltos_esperados": 8
+    },
+    "eslabones": [
+      "SOL-C-01 -[Telefono 8106033294]- SOL-C-02",
+      "SOL-C-02 -[Domicilio Andador Guyana 367]- SOL-C-03",
+      "SOL-C-03 -[Dispositivo 24c18682aa7e6a69]- SOL-C-04",
+      "SOL-C-04 -[CuentaBanco 905205754920938415]- SOL-C-05"
+    ],
+    "solicitudes": [
+      "SOL-C-01",
+      "SOL-C-02",
+      "SOL-C-03",
+      "SOL-C-04",
+      "SOL-C-05"
+    ]
+  },
+  {
+    "anillo": "D",
+    "nombre": "Mula de deposito",
+    "detecta_con": "consulta 1 (vecindad a 2 saltos)",
+    "valor_compartido": {
+      "CuentaBanco": "174825585783618366"
+    },
+    "solicitudes": [
+      "SOL-D-01",
+      "SOL-D-02",
+      "SOL-D-03",
+      "SOL-D-04",
+      "SOL-D-05"
+    ]
+  },
+  {
+    "anillo": "E",
+    "nombre": "Falso positivo legitimo (familia)",
+    "detecta_con": "NINGUNA consulta deberia marcarlo como fraude",
+    "valor_compartido": {
+      "Telefono": "5542894729",
+      "Domicilio": "Andador México 228, Queretaro"
+    },
+    "apellido_comun": "Menéndez",
+    "solicitudes": [
+      "SOL-E-01",
+      "SOL-E-02",
+      "SOL-E-03"
+    ]
+  }
+]

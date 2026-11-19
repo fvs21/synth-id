@@ -1,9 +1,7 @@
 """Configuracion de pytest: hace importable `src` y carga la referencia.
 
-Estos son tests de INTEGRACION: hablan con la instancia real de AuraDB
-configurada en el .env y esperan que el seed ya este cargado. No son tests
-unitarios con mocks, porque lo que hay que verificar es precisamente que el
-Cypher se comporta como se cree contra el motor real.
+Son tests de INTEGRACION contra la instancia real, con el seed ya cargado:
+lo que hay que verificar es el Cypher corriendo en el motor, no un mock.
 """
 
 import json
@@ -20,7 +18,7 @@ REFERENCIA = RAIZ / "docs" / "anillos_sembrados.json"
 
 @pytest.fixture(scope="session")
 def anillos():
-    """Metadata de los anillos sembrados, indexada por letra."""
+    """Anillos sembrados, indexados por letra."""
     if not REFERENCIA.exists():
         pytest.skip(
             "Falta {}. Corre antes: python scripts/seed.py".format(REFERENCIA)
@@ -31,7 +29,7 @@ def anillos():
 
 @pytest.fixture(scope="session", autouse=True)
 def _cierra_driver():
-    """Cierra el pool de conexiones al terminar la sesion de tests."""
+    """Cierra el pool al terminar la sesion."""
     yield
     from src.db import cerrar_driver
 

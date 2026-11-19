@@ -1,27 +1,9 @@
-"""Score de riesgo a partir de las senales del grafo (Fase 4).
+"""Score de riesgo a partir de las senales del grafo.
 
-COMO SE COMBINAN LAS SENALES
-----------------------------
-No se suman los pesos: se combinan como probabilidades independientes
-(noisy-OR). La razon es que sumar desborda rapido y obliga a recortar en 100,
-con lo que dos senales fuertes y cinco se vuelven indistinguibles. Con
-noisy-OR cada senal nueva aporta cada vez menos, que es como realmente
-funciona la evidencia acumulada:
-
-    riesgo = 1 - (1 - p1)(1 - p2)...(1 - pn)
-
-El peso de cada tipo de atributo refleja cuanto cuesta compartirlo por
-casualidad. Compartir CURP es practicamente imposible sin fraude; compartir
-domicilio es cotidiano.
-
-LA MITIGACION FAMILIAR
-----------------------
-Un domicilio y un telefono fijo compartidos por tres personas del mismo
-apellido es una familia, no un anillo. Sin esta regla el anillo E de los
-datos semilla sale con riesgo ALTO, que seria un falso positivo costoso: se
-le niega el credito a tres clientes legitimos. La regla es deliberadamente
-estrecha (solo aplica si NO hay ningun identificador fuerte compartido),
-porque una familia tambien puede cometer fraude.
+Los pesos no se suman: se combinan como probabilidades independientes
+(noisy-OR), riesgo = 1 - (1-p1)(1-p2)...(1-pn), asi cada senal nueva aporta
+menos en lugar de desbordar el tope. La mitigacion familiar, estrecha a
+proposito, no marca como anillo a quien solo comparte atributos de hogar.
 """
 
 from typing import Any, Dict, List, Optional
@@ -63,17 +45,14 @@ def _nivel(score: float) -> str:
 
 
 def _apellido(nombre: str) -> str:
-    """Ultimo token del nombre. Heuristica, suficiente para la regla familiar."""
+    """Ultimo token del nombre: heuristica suficiente para la regla familiar."""
     partes = nombre.split()
     return partes[-1].upper() if partes else ""
 
 
 def _es_familia(senales: List[Dict[str, Any]], nombres: List[str]) -> bool:
-    """Cierto si el parecido se explica por parentesco y nada mas.
-
-    Exige las tres condiciones: que solo se compartan atributos de hogar, que
-    haya al menos dos personas, y que TODAS compartan el mismo apellido.
-    """
+    """Cierto si solo se comparten atributos de hogar, entre dos personas o
+    mas, y todas llevan el mismo apellido."""
     tipos = {s["tipo"] for s in senales}
     if not tipos or not tipos.issubset(COMPARTIBLES_EN_FAMILIA):
         return False
@@ -84,16 +63,12 @@ def _es_familia(senales: List[Dict[str, Any]], nombres: List[str]) -> bool:
 
 
 def evaluar(solicitud_id: str, profundidad: int = 8) -> Dict[str, Any]:
-    """Calcula el score de riesgo de una solicitud y explica por que.
-
-    Devuelve siempre los motivos: un score sin explicacion no sirve para que
-    un analista tome una decision, ni para defenderla ante el cliente.
-    """
+    """Score de riesgo de una solicitud, siempre con los motivos que lo explican."""
     senales = atributos_compartidos(solicitud_id)
     anillo = anillo_de(solicitud_id, profundidad=profundidad)
 
     motivos: List[str] = []
-    complemento = 1.0  # producto de (1 - p) de cada senal
+    complemento = 1.0  # producto de (1 - p)
 
     for senal in senales:
         peso = PESOS.get(senal["tipo"])
@@ -121,7 +96,6 @@ def evaluar(solicitud_id: str, profundidad: int = 8) -> Dict[str, Any]:
 
     score = (1.0 - complemento) * 100.0
 
-    # Mitigacion familiar
     nombres = [fila["nombre"] for fila in personas_del_anillo(
         solicitud_id, profundidad=profundidad
     )]
@@ -151,6 +125,6 @@ def evaluar(solicitud_id: str, profundidad: int = 8) -> Dict[str, Any]:
 def evaluar_varias(
     solicitud_ids: List[str], profundidad: int = 8
 ) -> List[Dict[str, Any]]:
-    """Evalua varias solicitudes y las devuelve de mayor a menor riesgo."""
+    """Varias solicitudes, de mayor a menor riesgo."""
     resultados = [evaluar(sid, profundidad=profundidad) for sid in solicitud_ids]
     return sorted(resultados, key=lambda r: r["score"], reverse=True)

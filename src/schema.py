@@ -1,18 +1,9 @@
 """Esquema del grafo: constraints de unicidad e indices.
 
-Fase 1 del plan.
-
-NOTA DE DISENO (importante para la defensa del proyecto)
----------------------------------------------------------
-Las constraints de unicidad no son un adorno: son el mecanismo que hace que
-`MERGE (t:Telefono {numero: ...})` REUTILICE el nodo existente en lugar de
-crear un duplicado. Sin ellas el grafo nunca se conecta, cada solicitud queda
-en su propia isla y NINGUNA consulta de deteccion encuentra nada.
-
-Se usa unicidad de UNA sola propiedad porque las node key compuestas son
-exclusivas de Neo4j Enterprise. Para `Domicilio`, que naturalmente seria una
-llave compuesta (calle + cp + ciudad), se deriva una propiedad `clave`
-normalizada y la unicidad se aplica sobre ella.
+Las constraints son lo que hace que MERGE reutilice el nodo PII existente en
+lugar de duplicarlo; sin ellas el grafo nunca se conecta. Son de una sola
+propiedad porque las node key compuestas son de Enterprise: por eso
+`Domicilio` se identifica con una `clave` derivada y normalizada.
 """
 
 from typing import Any, Dict, List
@@ -59,7 +50,7 @@ def aplicar_esquema(verboso: bool = True) -> None:
 
 
 def listar_esquema() -> Dict[str, List[Dict[str, Any]]]:
-    """Devuelve el esquema vigente en la instancia, para verificacion."""
+    """Esquema vigente en la instancia, para verificacion."""
     constraints = ejecutar_lectura(
         "SHOW CONSTRAINTS YIELD name, labelsOrTypes, properties, type "
         "RETURN name, labelsOrTypes, properties, type ORDER BY name"

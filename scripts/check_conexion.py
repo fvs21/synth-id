@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""Verifica que la instancia de AuraDB en la nube responde (Fase 0).
-
-Es el primer script que debes correr. Si esto funciona, el resto del
-proyecto tiene con que trabajar.
+"""Verifica que la instancia de AuraDB en la nube responde.
 
 Uso:
     python scripts/check_conexion.py
@@ -50,8 +47,8 @@ def main() -> int:
         texto = str(error)
 
         if "Unauthorized" in texto or "authentication failure" in texto:
-            # Llegamos al servidor y nos rechazo: la instancia existe, esta
-            # despierta y el URI es correcto. Lo unico que falla es el password.
+            # El servidor nos rechazo: existe, esta despierta y el URI es
+            # correcto; solo fallan las credenciales.
             print("[X] Credenciales rechazadas por el servidor")
             print()
             print("La instancia responde (el URI es correcto y NO esta pausada),")

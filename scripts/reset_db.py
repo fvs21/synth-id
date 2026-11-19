@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Borra TODOS los datos del grafo. Operacion destructiva, pide confirmacion.
+"""Borra TODOS los datos del grafo. Destructivo, pide confirmacion.
 
-Por defecto conserva el esquema (constraints e indices); con --todo tambien
-los elimina.
+Conserva el esquema salvo que se pase --todo.
 
 Uso:
     python scripts/reset_db.py
@@ -23,7 +22,7 @@ from src.schema import listar_esquema  # noqa: E402
 
 
 def borrar_datos(tamano_lote: int = 10_000) -> int:
-    """Borra nodos y relaciones por lotes, para no agotar la memoria de Aura."""
+    """Borra nodos y relaciones por lotes, para no agotar la memoria."""
     borrados = 0
     while True:
         filas = ejecutar_escritura(
@@ -48,7 +47,7 @@ def borrar_esquema() -> int:
         ejecutar_escritura("DROP CONSTRAINT {} IF EXISTS".format(fila["name"]))
         total += 1
     for fila in esquema["indices"]:
-        # Los indices que respaldan una constraint ya se fueron con ella.
+        # Los que respaldan una constraint ya se fueron con ella.
         try:
             ejecutar_escritura("DROP INDEX {} IF EXISTS".format(fila["name"]))
             total += 1

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Aplica el esquema del grafo: constraints e indices (Fase 1).
+"""Aplica el esquema del grafo: constraints e indices.
 
-Correr ANTES del seed. Si se corre despues, los MERGE del seed ya habran
-creado nodos PII duplicados y el grafo no se conectara.
+Correr ANTES del seed: despues, los MERGE ya habran duplicado nodos PII y el
+grafo no se conectara.
 
 Uso:
     python scripts/init_db.py

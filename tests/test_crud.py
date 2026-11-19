@@ -1,7 +1,7 @@
 """CRUD completo sobre la instancia real, limpiando lo que crea.
 
 Las solicitudes de prueba usan el prefijo SOL-TEST y PII propio, asi que no
-tocan ni los datos legitimos ni los anillos sembrados.
+tocan los datos legitimos ni los anillos.
 """
 
 import pytest
@@ -53,10 +53,9 @@ PREFIJO_PRUEBA = "SOL-TEST-"
 def _borra_rastros_de_prueba() -> int:
     """Borra toda solicitud de prueba y el PII que quede huerfano.
 
-    Se hace con un MATCH directo por prefijo y NO recorriendo un listado
-    paginado: las solicitudes de prueba ordenan despues de las 427 reales,
-    asi que un `listar_solicitudes(limite=100)` nunca las alcanzaria y la
-    limpieza fallaria en silencio, dejando basura en la base.
+    Por prefijo y no sobre un listado paginado: SOL-TEST ordena despues de
+    las 427 reales, asi que un listado corto no lo alcanzaria y la limpieza
+    fallaria en silencio.
     """
     filas = ejecutar_escritura(
         """
@@ -73,7 +72,7 @@ def _borra_rastros_de_prueba() -> int:
 
 @pytest.fixture
 def limpia():
-    """Borra las solicitudes de prueba antes y despues de cada test."""
+    """Limpia antes y despues de cada test."""
     _borra_rastros_de_prueba()
     yield
     _borra_rastros_de_prueba()
@@ -149,11 +148,10 @@ def test_listado_filtra_por_estatus(limpia):
 
 
 def test_reapuntar_el_telefono_cambia_el_vecindario(limpia):
-    """El cambio de un atributo reconfigura el grafo, no solo un campo.
+    """Cambiar un atributo reconfigura el grafo, no solo un campo.
 
-    Dos solicitudes que comparten telefono se ven como vecinas. Al reapuntar
-    una a otro nodo de telefono, la vecindad desaparece sin que se haya
-    tocado nada mas.
+    Al reapuntar el telefono de una de las dos, la vecindad desaparece sin
+    que se haya tocado nada mas.
     """
     crear_solicitud(_solicitud("04", telefono=TELEFONO_COMPARTIDO))
     crear_solicitud(_solicitud("05", telefono=TELEFONO_COMPARTIDO))

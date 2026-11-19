@@ -1,9 +1,7 @@
-"""Esquemas Pydantic de entrada y salida de la API (Fase 5).
+"""Esquemas Pydantic de entrada y salida de la API.
 
-Separar estos modelos del repositorio tiene un proposito: la validacion de
-formato (que la CURP mida 18, que la CLABE sean 18 digitos) pertenece al
-borde de la aplicacion, no a la capa que habla Cypher. Asi el repositorio
-puede reutilizarse desde el seed o desde un script sin arrastrar FastAPI.
+Van aparte del repositorio para que la validacion de formato viva en el borde
+y el repositorio pueda usarse desde un script sin arrastrar FastAPI.
 """
 
 from datetime import date
@@ -15,8 +13,6 @@ from src.repository import ESTATUS_VALIDOS, SolicitudNueva
 
 
 class SolicitudIn(BaseModel):
-    """Solicitud de credito tal como llega del formulario."""
-
     id: str = Field(..., min_length=3, max_length=40, examples=["SOL-X-01"])
     fecha: date = Field(default_factory=date.today)
     monto_solicitado: float = Field(..., gt=0, le=10_000_000)
@@ -37,7 +33,7 @@ class SolicitudIn(BaseModel):
     empleador: str = Field(..., min_length=2, max_length=160)
 
     def a_repositorio(self) -> SolicitudNueva:
-        """Traduce al tipo que entiende el repositorio."""
+        """Traduce al tipo del repositorio."""
         return SolicitudNueva(
             id=self.id,
             fecha=self.fecha.isoformat(),
@@ -108,8 +104,6 @@ class RiesgoOut(BaseModel):
 
 
 class AltaOut(BaseModel):
-    """Lo que devuelve el alta: el id creado y su riesgo recien calculado."""
-
     id: str
     riesgo: RiesgoOut
 
@@ -137,8 +131,6 @@ class BorradoOut(BaseModel):
 
 
 class Alerta(BaseModel):
-    """Fila generica de los endpoints de alertas."""
-
     model_config = {"extra": "allow"}
 
     def __init__(self, **datos: Any) -> None:

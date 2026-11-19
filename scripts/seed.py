@@ -1,44 +1,18 @@
 #!/usr/bin/env python3
-"""Generador de datos semilla para SynthID (Fase 2 del plan).
-
-Produce DOS capas:
-
-  Capa A - poblacion legitima: 400 solicitudes con PII totalmente unico.
-           Es el ruido de fondo contra el que se mide la senal. Comparten
-           empleador entre si, porque eso es normal y NO es sospechoso.
-
-  Capa B - cinco anillos sembrados a proposito, cada uno disenado para que
-           lo cace una consulta distinta de la Fase 4:
+"""Datos semilla: 400 solicitudes legitimas y cinco anillos sembrados.
 
     A  Granja de CURP ....... 1 CURP, 6 personas con nombres distintos
     B  Dispositivo compartido  8 solicitudes, 8 personas, 1 fingerprint
-    C  Cadena larga .......... S1-tel-S2-domicilio-S3-dispositivo-S4-clabe-S5
-                               (S1 y S5 no comparten NADA entre si)
+    C  Cadena larga .......... S1-tel-S2-dom-S3-disp-S4-clabe-S5, 8 saltos
+                               entre extremos (de ahi la cota *1..8)
     D  Mula de deposito ...... 5 solicitudes sin relacion aparente, 1 CLABE
-    E  Falso positivo ........ una familia real: 3 solicitudes que comparten
-                               domicilio y telefono fijo. NINGUNA consulta
-                               deberia marcarla como fraude.
+    E  Falso positivo ........ una familia: domicilio y telefono fijo
 
-DECISION DE DISENO: el nodo Empleador
---------------------------------------
-Cientos de personas legitimas comparten empleador. Si el traversal de
-deteccion recorriera la relacion TRABAJA_EN, todo el grafo quedaria conectado
-a pocos saltos y la deteccion se volveria inutil (todo seria "sospechoso").
-Por eso Empleador existe en el modelo pero queda FUERA de la lista blanca de
-relaciones que recorren las consultas de deteccion. La leccion generalizable:
-en un grafo de fraude hay que distinguir los atributos compartidos que son
-*identificadores* (telefono, dispositivo, CURP) de los que son meras
-*categorias* (empleador, ciudad, banco).
-
-NOTA SOBRE LA PROFUNDIDAD: el anillo C tiene 8 saltos entre sus extremos
-(S1 -> tel -> S2 -> dom -> S3 -> disp -> S4 -> clabe -> S5), asi que las
-consultas de anillo usan cota *1..8, no *1..6.
-
-Los datos son 100% sinteticos: las CURP, CLABE y telefonos tienen formato
-plausible pero se generan al azar, no corresponden a personas reales.
+La poblacion legitima es el ruido de fondo contra el que se mide la senal;
+comparte empleador entre si porque eso es normal. Todo el PII es sintetico.
 
 Uso:
-    python scripts/seed.py            # pobla la base
+    python scripts/seed.py
     python scripts/seed.py --solo-anillos
 """
 
@@ -64,11 +38,8 @@ from src.repository import (  # noqa: E402
     crear_solicitudes_lote,
 )
 
-# --------------------------------------------------------------------------
-# Parametros reproducibles: con la misma semilla, el seed genera exactamente
-# los mismos datos, asi que correrlo dos veces no duplica nada (los MERGE
-# del repositorio dan con los mismos nodos).
-# --------------------------------------------------------------------------
+# Con la misma semilla genera los mismos datos, asi que correrlo dos veces no
+# duplica nada: los MERGE dan con los mismos nodos.
 SEMILLA = 42
 POBLACION_LEGITIMA = 400
 FECHA_BASE = date(2026, 11, 17)
@@ -97,14 +68,13 @@ class Generador:
         self.fake = Faker("es_MX")
         Faker.seed(semilla)
 
-        # Guardas de unicidad: evitan que una colision accidental cree un
-        # vinculo no intencional que contaminaria la poblacion legitima.
+        # Guardas de unicidad: una colision crearia un vinculo no intencional.
         self._usados: Dict[str, set] = {
             "curp": set(), "telefono": set(), "email": set(),
             "domicilio": set(), "fingerprint": set(), "clabe": set(),
         }
 
-        # Pool de empleadores compartido: ruido legitimo.
+        # Pool compartido: ruido legitimo.
         self.empleadores = [self.fake.company() for _ in range(25)]
 
     # -- utilidades -------------------------------------------------------
@@ -187,8 +157,8 @@ class Generador:
         nombre: Optional[str] = None,
         **overrides
     ) -> SolicitudNueva:
-        """Crea una solicitud con PII nuevo; `overrides` permite COMPARTIR
-        un atributo con otra solicitud (es asi como se siembra un anillo)."""
+        """Solicitud con PII nuevo; `overrides` comparte un atributo con otra,
+        que es como se siembra un anillo."""
         nombre_completo = nombre or self.fake.name()
         calle, cp, ciudad = self.domicilio()
 
@@ -228,11 +198,7 @@ def generar_poblacion_legitima(gen: Generador, n: int) -> List[SolicitudNueva]:
 # Capa B: los cinco anillos
 # --------------------------------------------------------------------------
 def anillo_a_granja_curp(gen: Generador) -> Tuple[List[SolicitudNueva], Dict]:
-    """1 CURP reutilizada por 6 identidades con nombre distinto.
-
-    Es la firma pura de la identidad sintetica: el fragmento real (la CURP)
-    se recombina con nombres inventados.
-    """
+    """1 CURP reutilizada por 6 identidades con nombre distinto."""
     curp_compartida = gen.curp()
     solicitudes = [
         gen.solicitud("SOL-A-{:02d}".format(i), curp=curp_compartida)
@@ -266,11 +232,10 @@ def anillo_b_dispositivo(gen: Generador) -> Tuple[List[SolicitudNueva], Dict]:
 
 
 def anillo_c_cadena(gen: Generador) -> Tuple[List[SolicitudNueva], Dict]:
-    """Cadena de 5 solicitudes encadenadas por un atributo distinto cada vez.
+    """5 solicitudes encadenadas por un atributo distinto cada vez.
 
     S1 y S5 no comparten ningun atributo directo: solo un traversal de
-    longitud variable (o shortestPath) revela que pertenecen al mismo anillo.
-    Esta es LA consulta que no se puede escribir de forma mantenible en SQL.
+    longitud variable revela que son del mismo anillo.
     """
     s1 = gen.solicitud("SOL-C-01")
     s2 = gen.solicitud("SOL-C-02", telefono=s1.telefono)
@@ -311,10 +276,9 @@ def anillo_d_mula_deposito(gen: Generador) -> Tuple[List[SolicitudNueva], Dict]:
 
 
 def anillo_e_falso_positivo(gen: Generador) -> Tuple[List[SolicitudNueva], Dict]:
-    """Una familia real. Comparten domicilio y telefono fijo, y eso es normal.
+    """Una familia: comparten domicilio y telefono fijo, y eso es normal.
 
-    Sirve para discutir umbrales: compartir domicilio NO es fraude. Lo que
-    distingue a esta familia del anillo D es que cada integrante tiene CURP,
+    Lo que la distingue de un anillo es que cada integrante tiene CURP,
     dispositivo y cuenta propios, y que comparten apellido.
     """
     apellido = gen.fake.last_name()
@@ -399,8 +363,7 @@ def main() -> int:
                 )
             )
 
-        # Archivo de referencia: la demo de la Fase 5 lo lee para saber que
-        # valores usar, y a ti te sirve para copiar y pegar en Neo4j Browser.
+        # Referencia que leen la demo y los tests para saber que valores usar.
         destino = RAIZ / "docs" / "anillos_sembrados.json"
         destino.parent.mkdir(parents=True, exist_ok=True)
         destino.write_text(

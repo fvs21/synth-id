@@ -1,20 +1,7 @@
-"""Carga y validacion de la configuracion desde el archivo .env.
+"""Carga y validacion de las credenciales desde el .env.
 
-Fase 0 del plan. Si falta una credencial el programa falla de inmediato con
-un mensaje claro, en lugar de reventar mas adelante con un error de
-autenticacion del driver que no dice nada util.
-
-LECCION APRENDIDA (verificado contra una instancia real)
----------------------------------------------------------
-El archivo de credenciales que descarga Aura es correcto tal cual: no hay que
-editarlo ni "corregirlo". En la instancia probada, el usuario y la base de
-datos NO se llaman 'neo4j' sino como el ID de la instancia (p.ej. ab0cd36a);
-`SHOW DATABASES` confirma que la unica base de usuario es ab0cd36a y que no
-existe ninguna llamada 'neo4j'.
-
-Por eso este modulo NO normaliza ni adivina esos valores: usa exactamente lo
-que dice el archivo. Si alguna vez conectas contra un Neo4j propio donde la
-base se llama 'neo4j', basta con que el .env lo diga.
+El archivo que descarga Aura se usa tal cual, sin normalizar: en AuraDB el
+usuario y la base se llaman como el ID de la instancia, no 'neo4j'.
 """
 
 import os
@@ -23,7 +10,6 @@ from typing import NamedTuple, Optional
 
 from dotenv import load_dotenv
 
-# Raiz del proyecto (un nivel arriba de src/)
 RAIZ_PROYECTO = Path(__file__).resolve().parent.parent
 RUTA_ENV = RAIZ_PROYECTO / ".env"
 
@@ -34,8 +20,7 @@ class Settings(NamedTuple):
     uri: str
     user: str
     password: str
-    # None = usar la "home database" que la instancia tenga configurada.
-    database: Optional[str]
+    database: Optional[str]  # None = home database de la instancia
 
 
 class ConfiguracionInvalida(RuntimeError):
@@ -43,12 +28,7 @@ class ConfiguracionInvalida(RuntimeError):
 
 
 def _leer(*nombres: str) -> str:
-    """Primer valor no vacio entre varios nombres de variable.
-
-    Aura nombra al usuario NEO4J_USERNAME en el archivo que descarga; otros
-    ejemplos de la documentacion usan NEO4J_USER. Se aceptan los dos para que
-    el archivo descargado funcione sin editarse.
-    """
+    """Primer valor no vacio entre varios nombres de variable."""
     for nombre in nombres:
         valor = os.getenv(nombre)
         if valor and valor.strip():

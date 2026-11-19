@@ -1,18 +1,9 @@
-"""API HTTP de SynthID (Fase 5).
+"""API HTTP de SynthID.
 
-    uvicorn src.api:app --reload
+    uvicorn src.api:app --reload   ->   http://127.0.0.1:8000/docs
 
-Y el Swagger autogenerado queda en http://127.0.0.1:8000/docs, que es la
-mejor superficie para la demo: el evaluador hace clic en los endpoints y ve
-el CRUD y los traversals en vivo.
-
-POR QUE LOS ENDPOINTS SON `def` Y NO `async def`
-------------------------------------------------
-El driver de Neo4j es sincrono y bloqueante. Un endpoint declarado
-`async def` corre en el event loop, asi que una consulta lenta bloquearia
-TODAS las peticiones concurrentes. Declarado `def`, FastAPI lo ejecuta en su
-threadpool y el bloqueo queda aislado a ese hilo. Es la diferencia entre una
-API que aguanta varias peticiones y una que se serializa.
+Los endpoints son `def` y no `async def`: el driver de Neo4j es bloqueante,
+asi que FastAPI los corre en su threadpool y no serializa las peticiones.
 """
 
 from contextlib import asynccontextmanager
@@ -38,8 +29,7 @@ from src.repository import ESTATUS_VALIDOS
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Falla al arrancar si la base no responde, en lugar de en la primera
-    peticion: es mejor enterarse al levantar el servidor."""
+    """Falla al arrancar si la base no responde, no en la primera peticion."""
     verificar_conectividad()
     yield
     cerrar_driver()
@@ -59,11 +49,9 @@ app = FastAPI(
 
 
 def _o_404(solicitud_id: str) -> Dict[str, Any]:
-    """Devuelve el expediente o corta con 404.
+    """Expediente, o 404.
 
-    Importa para los endpoints de riesgo: sin esta verificacion, un id
-    inexistente devolveria score 0 / nivel BAJO, que es una respuesta
-    plausible y equivocada.
+    Sin esto un id inexistente devolveria score 0 / BAJO: plausible y falso.
     """
     expediente = repository.obtener_solicitud(solicitud_id)
     if expediente is None:
@@ -76,11 +64,10 @@ def _o_404(solicitud_id: str) -> Dict[str, Any]:
 # --------------------------------------------------------------------------
 @app.post("/solicitudes", response_model=AltaOut, status_code=201, tags=["CRUD"])
 def crear_solicitud(entrada: SolicitudIn) -> AltaOut:
-    """Da de alta una solicitud y devuelve su riesgo recien calculado.
+    """Alta de una solicitud, con su riesgo recien calculado.
 
-    El alta y la evaluacion van juntas a proposito: es el momento en que la
-    decision importa, y el score depende del grafo que la propia alta acaba
-    de modificar.
+    Van juntas porque el score depende del grafo que el alta acaba de
+    modificar.
     """
     if repository.obtener_solicitud(entrada.id) is not None:
         raise HTTPException(409, "Ya existe la solicitud {}".format(entrada.id))
@@ -117,7 +104,7 @@ def listar_solicitudes(
 
 @app.get("/solicitudes/{solicitud_id}", response_model=SolicitudOut, tags=["CRUD"])
 def obtener_solicitud(solicitud_id: str = Path(...)) -> SolicitudOut:
-    """Expediente completo con todo su PII."""
+    """Expediente con todo su PII."""
     return SolicitudOut(**_o_404(solicitud_id))
 
 
@@ -125,7 +112,7 @@ def obtener_solicitud(solicitud_id: str = Path(...)) -> SolicitudOut:
 def actualizar_estatus(
     entrada: EstatusIn, solicitud_id: str = Path(...)
 ) -> Dict[str, Any]:
-    """Registra la decision del analista sobre la solicitud."""
+    """Registra la decision del analista."""
     _o_404(solicitud_id)
 
     if entrada.estatus not in ESTATUS_VALIDOS:
@@ -143,11 +130,10 @@ def actualizar_estatus(
 def actualizar_telefono(
     entrada: TelefonoIn, solicitud_id: str = Path(...)
 ) -> Dict[str, Any]:
-    """Cambia el telefono REAPUNTANDO la relacion a otro nodo.
+    """Reapunta la relacion USA_TELEFONO a otro nodo.
 
-    No es un UPDATE de columna: la solicitud se desvincula de un vecindario y
-    se vincula a otro, asi que su riesgo puede cambiar sin que nada mas en el
-    grafo se haya tocado. Consulta /riesgo antes y despues para verlo.
+    No es un UPDATE de columna: la solicitud cambia de vecindario, asi que su
+    riesgo puede cambiar. Consulta /riesgo antes y despues para verlo.
     """
     _o_404(solicitud_id)
     return repository.actualizar_telefono(solicitud_id, entrada.telefono)
@@ -155,7 +141,7 @@ def actualizar_telefono(
 
 @app.delete("/solicitudes/{solicitud_id}", response_model=BorradoOut, tags=["CRUD"])
 def eliminar_solicitud(solicitud_id: str = Path(...)) -> BorradoOut:
-    """Baja de la solicitud y purga del PII que se quedo sin dueno."""
+    """Baja de la solicitud y purga del PII sin dueno."""
     _o_404(solicitud_id)
     eliminada = repository.eliminar_solicitud(solicitud_id)
     return BorradoOut(id=eliminada, huerfanos_purgados=repository.purgar_huerfanos())
@@ -173,11 +159,7 @@ def riesgo(
     solicitud_id: str = Path(...),
     profundidad: int = Query(8, ge=1, le=12),
 ) -> RiesgoOut:
-    """Score de riesgo con las senales que lo explican (vecindad a 2 saltos).
-
-    Nunca devuelve un numero sin motivos: un score inexplicable no sirve para
-    que un analista decida, ni para defender la decision ante el cliente.
-    """
+    """Score de riesgo, siempre con las senales y motivos que lo explican."""
     _o_404(solicitud_id)
     return RiesgoOut(**scoring.evaluar(solicitud_id, profundidad=profundidad))
 
@@ -187,7 +169,7 @@ def anillo(
     solicitud_id: str = Path(...),
     profundidad: int = Query(8, ge=1, le=12),
 ) -> Dict[str, Any]:
-    """Clúster completo de solicitudes conectadas, via traversal `*1..n`."""
+    """Cluster de solicitudes conectadas, via traversal `*1..n`."""
     _o_404(solicitud_id)
     miembros = detection.anillo_de(solicitud_id, profundidad=profundidad)
     return {
@@ -204,10 +186,7 @@ def ruta(
     b: str = Query(..., description="Solicitud de destino"),
     max_saltos: int = Query(10, ge=1, le=12),
 ) -> RutaOut:
-    """Camino mas corto entre dos solicitudes: la cadena de evidencia.
-
-    Responde "estas dos personas dicen no conocerse, como estan conectadas?".
-    """
+    """Camino mas corto entre dos solicitudes: la cadena de evidencia."""
     _o_404(a)
     _o_404(b)
 
@@ -229,7 +208,7 @@ def ruta(
 def curps_multiples(
     min_variantes: int = Query(2, ge=2, le=50),
 ) -> List[Dict[str, Any]]:
-    """CURPs usadas por mas de un nombre: la firma de la identidad sintetica."""
+    """CURPs usadas por mas de un nombre."""
     return detection.curps_multiples(min_variantes)
 
 
@@ -253,7 +232,7 @@ def hubs(
 def anillos_globales(
     min_solicitudes: int = Query(2, ge=2, le=50),
 ) -> List[Dict[str, Any]]:
-    """Barrido de la base: todo atributo compartido por varias solicitudes."""
+    """Barrido de la base: atributos compartidos por varias solicitudes."""
     return detection.anillos_globales(min_solicitudes)
 
 

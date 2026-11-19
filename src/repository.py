@@ -1,15 +1,8 @@
-"""Acceso a datos: alta de solicitudes y utilidades de conteo.
+"""Acceso a datos: el CRUD completo de solicitudes.
 
-Aqui vive la operacion CREATE del CRUD (el resto -- read, update, delete --
-se agrega en la Fase 3). El seed la reutiliza en lugar de duplicar Cypher.
-
-EL PATRON CLAVE
----------------
-El PII no se guarda como propiedad de la solicitud sino como NODO propio, y
-se inserta con MERGE. Eso significa que si el telefono ya existe en el grafo,
-la nueva solicitud se cuelga del mismo nodo: la red de atributos compartidos
-se teje sola en el momento del alta, sin que el codigo tenga que buscar
-coincidencias ni mantener tablas de enlace.
+El PII no es propiedad de la solicitud sino nodo propio, insertado con MERGE:
+si el telefono ya existe, la nueva solicitud se cuelga del mismo nodo y la red
+de atributos compartidos se teje sola en el alta.
 """
 
 import re
@@ -29,7 +22,7 @@ class SolicitudNueva(NamedTuple):
     """Datos de una solicitud de credito tal como llegan del formulario."""
 
     id: str
-    fecha: str  # ISO-8601, p.ej. "2026-03-14"
+    fecha: str  # ISO-8601
     monto_solicitado: float
     persona_id: str
     nombre_completo: str
@@ -48,26 +41,24 @@ class SolicitudNueva(NamedTuple):
 
 
 def clave_domicilio(calle: str, cp: str, ciudad: str) -> str:
-    """Normaliza un domicilio a una llave unica de una sola propiedad.
+    """Llave unica de una sola propiedad, normalizada.
 
-    Las node key compuestas requieren Neo4j Enterprise, asi que derivamos
-    la llave aqui. Normalizar tambien evita que 'Av.  Reforma 12' y
-    'av. reforma 12' se traten como domicilios distintos, lo que partiria
-    un anillo de fraude en dos componentes.
+    Normalizar evita que 'Av.  Reforma 12' y 'av. reforma 12' partan un
+    anillo en dos componentes.
     """
     partes = [re.sub(r"\s+", " ", p).strip().upper() for p in (calle, cp, ciudad)]
     return "|".join(partes)
 
 
 CYPHER_CREAR_SOLICITUD = """
-// --- Persona y su CURP ---------------------------------------------------
+// Persona y su CURP
 MERGE (p:Persona {id: $persona_id})
   ON CREATE SET p.nombre_completo  = $nombre_completo,
                 p.fecha_nacimiento = date($fecha_nacimiento)
 MERGE (c:Curp {valor: $curp})
 MERGE (p)-[:TIENE_CURP]->(c)
 
-// --- La solicitud --------------------------------------------------------
+// La solicitud
 MERGE (s:Solicitud {id: $id})
   ON CREATE SET s.fecha            = date($fecha),
                 s.monto_solicitado = $monto_solicitado,
@@ -75,7 +66,7 @@ MERGE (s:Solicitud {id: $id})
                 s.score_riesgo     = null
 MERGE (s)-[:PRESENTADA_POR]->(p)
 
-// --- Atributos de identidad, cada uno como nodo compartible --------------
+// Atributos de identidad: cada uno es un nodo compartible
 MERGE (t:Telefono {numero: $telefono})
 MERGE (s)-[:USA_TELEFONO]->(t)
 
@@ -162,11 +153,9 @@ RETURN count(s) AS creadas
 
 
 def crear_solicitudes_lote(solicitudes: List[SolicitudNueva], tamano: int = 50) -> int:
-    """Alta por lotes: mucho mas rapido que una transaccion por solicitud.
+    """Alta por lotes: una transaccion cada `tamano`, no una por solicitud.
 
-    Cada ida y vuelta a Aura cuesta decenas de milisegundos. Mandar 400 altas
-    de una en una son 400 round-trips; agruparlas en transacciones de ~50
-    baja el tiempo del seed de minutos a segundos.
+    Cada round-trip a Aura cuesta decenas de milisegundos.
     """
     if not solicitudes:
         return 0
@@ -181,7 +170,7 @@ def crear_solicitudes_lote(solicitudes: List[SolicitudNueva], tamano: int = 50) 
 
 
 def contar_entidades() -> Dict[str, int]:
-    """Conteo por etiqueta y total de relaciones. Para el reporte del seed."""
+    """Conteo por etiqueta y total de relaciones."""
     filas = ejecutar_lectura(
         """
         MATCH (n)
@@ -201,7 +190,7 @@ def contar_entidades() -> Dict[str, int]:
 # READ
 # --------------------------------------------------------------------------
 def obtener_solicitud(solicitud_id: str) -> Optional[Dict[str, Any]]:
-    """Expediente completo: la solicitud con todo su PII a un salto."""
+    """La solicitud con todo su PII, a un salto."""
     filas = ejecutar_lectura(
         """
         MATCH (s:Solicitud {id: $id})-[:PRESENTADA_POR]->(p:Persona)
@@ -286,7 +275,7 @@ def contar_solicitudes(estatus: Optional[str] = None) -> int:
 # UPDATE
 # --------------------------------------------------------------------------
 def actualizar_estatus(solicitud_id: str, estatus: str) -> Optional[Dict[str, Any]]:
-    """Cambia el estatus de una solicitud (la decision del analista)."""
+    """Registra la decision del analista."""
     if estatus not in ESTATUS_VALIDOS:
         raise ValueError(
             "Estatus invalido: {!r}. Validos: {}".format(
@@ -307,7 +296,7 @@ def actualizar_estatus(solicitud_id: str, estatus: str) -> Optional[Dict[str, An
 
 
 def guardar_score(solicitud_id: str, score: float) -> Optional[Dict[str, Any]]:
-    """Persiste el score de riesgo calculado por el modulo de deteccion."""
+    """Persiste el score calculado por el modulo de deteccion."""
     filas = ejecutar_escritura(
         """
         MATCH (s:Solicitud {id: $id})
@@ -323,12 +312,10 @@ def guardar_score(solicitud_id: str, score: float) -> Optional[Dict[str, Any]]:
 def actualizar_telefono(
     solicitud_id: str, telefono: str
 ) -> Optional[Dict[str, Any]]:
-    """Cambia el telefono REAPUNTANDO la relacion a otro nodo.
+    """Reapunta USA_TELEFONO a otro nodo, en lugar de sobreescribir un campo.
 
-    Esto es lo que distingue a un grafo de una tabla: el telefono no es un
-    campo que se sobreescribe, es una entidad distinta. Al reapuntar, la
-    solicitud se desvincula de un vecindario y se vincula a otro, asi que su
-    riesgo puede cambiar sin que nada mas en el grafo se haya tocado.
+    La solicitud cambia de vecindario, asi que su riesgo puede cambiar sin
+    que nada mas en el grafo se haya tocado.
     """
     filas = ejecutar_escritura(
         """
@@ -350,11 +337,10 @@ def actualizar_telefono(
 # DELETE
 # --------------------------------------------------------------------------
 def eliminar_solicitud(solicitud_id: str) -> Optional[str]:
-    """Borra la solicitud y sus relaciones. Devuelve su id, o None si no existe.
+    """Borra la solicitud y sus relaciones, no su PII.
 
-    No borra el PII: un telefono puede seguir vivo porque otra solicitud lo
-    usa. La limpieza de nodos que se quedaron sin dueno va aparte, en
-    `purgar_huerfanos()`.
+    Un telefono puede seguir vivo porque otra solicitud lo usa; lo que queda
+    sin dueno lo limpia `purgar_huerfanos()`.
     """
     filas = ejecutar_escritura(
         """
@@ -369,10 +355,9 @@ def eliminar_solicitud(solicitud_id: str) -> Optional[str]:
 
 
 def purgar_huerfanos() -> Dict[str, int]:
-    """Elimina personas y nodos de PII que se quedaron sin ninguna solicitud.
+    """Elimina personas y PII que quedaron sin solicitud.
 
-    Se corre despues de un borrado. El orden importa: primero las personas,
-    porque al irse dejan huerfanos su CURP y su empleador.
+    Primero las personas: al irse dejan huerfanos su CURP y su empleador.
     """
     personas = ejecutar_escritura(
         """

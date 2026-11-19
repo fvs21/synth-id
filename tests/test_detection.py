@@ -1,8 +1,5 @@
-"""Verifica que cada consulta encuentre el anillo que fue disenada para cazar.
-
-Los datos semilla son deterministas, asi que estos tests son reproducibles:
-cada anillo se sembro con un patron concreto y aqui se comprueba que la
-consulta correspondiente lo recupera, y que NO recupera a las legitimas.
+"""Cada consulta encuentra el anillo que fue disenada para cazar, y no marca
+a las legitimas. Los datos semilla son deterministas, asi que es reproducible.
 """
 
 import pytest
@@ -83,10 +80,7 @@ def test_anillo_c_camino_mas_corto_entre_extremos(anillos):
 
 
 def test_anillo_c_cota_insuficiente_no_alcanza_el_otro_extremo(anillos):
-    """Los extremos estan a 8 saltos: con cota 6 no deben verse.
-
-    Documenta por que las consultas de anillo usan *1..8 y no *1..6.
-    """
+    """Los extremos estan a 8 saltos: con cota 6 no deben verse."""
     extremos = anillos["C"]["extremos"]
 
     alcanzadas = {fila["id"] for fila in anillo_de(extremos["desde"], profundidad=6)}
@@ -124,12 +118,9 @@ def test_anillo_e_solo_comparte_atributos_de_hogar(anillos):
 def test_el_anillo_no_se_incluye_a_si_mismo(anillos):
     """Regresion: el origen aparecia en su propio anillo si habia un ciclo.
 
-    La familia del anillo E se conecta por DOS atributos (telefono y
-    domicilio), asi que existe el ciclo E-01 -tel- E-02 -domicilio- E-01.
-    Son cuatro relaciones distintas, por lo que la unicidad de relaciones de
-    Cypher no lo impide y `otra` hacia match con el propio origen, inflando
-    el tamano del cluster. Los anillos B y C no tienen ciclos, que es la
-    razon por la que los demas tests no lo detectaron.
+    El anillo E se conecta por dos atributos, asi que el ciclo
+    E-01 -tel- E-02 -domicilio- E-01 usa cuatro relaciones distintas y la
+    unicidad de relaciones de Cypher no lo impide.
     """
     for letra in "ABCDE":
         for solicitud in anillos[letra]["solicitudes"]:
@@ -175,11 +166,7 @@ def test_legitima_sale_con_riesgo_bajo():
 
 
 def test_empleador_queda_fuera_del_traversal():
-    """La medicion que justifica excluir TRABAJA_EN de la lista blanca.
-
-    Sin el, una solicitud legitima no alcanza ninguna otra. Con el, arrastra
-    decenas, porque cientos de personas comparten los mismos 25 empleadores.
-    """
+    """La medicion que justifica excluir TRABAJA_EN de la lista blanca."""
     sin_empleador = ejecutar_lectura(
         "MATCH (s:Solicitud {{id: $id}})-[:{rel}*1..8]-(otra:Solicitud) "
         "RETURN count(DISTINCT otra) AS n".format(rel=REL_PII),

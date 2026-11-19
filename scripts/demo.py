@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
-"""Recorrido narrado de SynthID para la evaluacion (Fase 5).
+"""Recorrido narrado de SynthID, en seis pasos.
 
-Seis pasos que muestran, en orden, el CRUD y las cuatro consultas de grafo
-que justifican el paradigma. Cada paso imprime la pregunta de negocio, la
-operacion y el resultado.
-
-Las solicitudes que crea usan el prefijo SOL-DEMO y se borran al final, asi
-que la base queda como estaba (427 solicitudes). Si el recorrido se
-interrumpe a medias, `--limpiar` quita los restos.
+Cada paso imprime la pregunta de negocio, la operacion y el resultado. Las
+solicitudes que crea usan el prefijo SOL-DEMO y se borran al final; si el
+recorrido se interrumpe, `--limpiar` quita los restos.
 
 Uso:
     python scripts/demo.py

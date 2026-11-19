@@ -1,8 +1,7 @@
 """Capa de conexion al driver oficial de Neo4j.
 
-El driver es un objeto costoso y thread-safe: se crea UNA vez por proceso y se
-reutiliza (maneja su propio pool de conexiones). Las sesiones, en cambio, son
-baratas y de vida corta: una por unidad de trabajo.
+El driver es costoso y thread-safe: uno por proceso, con su propio pool. Las
+sesiones son baratas: una por unidad de trabajo.
 """
 
 from contextlib import contextmanager
@@ -25,8 +24,7 @@ def obtener_driver() -> Driver:
         _driver = GraphDatabase.driver(
             _settings.uri,
             auth=(_settings.user, _settings.password),
-            # Una instancia de Aura Free pausada tarda en despertar: damos aire.
-            connection_timeout=30.0,
+            connection_timeout=30.0,  # una instancia pausada tarda en despertar
             max_connection_lifetime=3600,
         )
 
@@ -34,12 +32,7 @@ def obtener_driver() -> Driver:
 
 
 def obtener_database() -> Optional[str]:
-    """Nombre de la base destino, tal como lo declara el .env.
-
-    None significa "usar la home database de la instancia". En AuraDB la base
-    suele llamarse como el ID de la instancia, no 'neo4j', asi que este valor
-    no se adivina: sale del archivo de credenciales.
-    """
+    """Base destino segun el .env. None = home database de la instancia."""
     if _settings is None:
         obtener_driver()
     assert _settings is not None
@@ -47,7 +40,7 @@ def obtener_database() -> Optional[str]:
 
 
 def cerrar_driver() -> None:
-    """Cierra el driver y libera el pool. Llamar al terminar el proceso."""
+    """Cierra el driver y libera el pool, al terminar el proceso."""
     global _driver
     if _driver is not None:
         _driver.close()
@@ -72,11 +65,7 @@ def ejecutar_lectura(cypher: str, **params: Any) -> List[Dict[str, Any]]:
 
 
 def ejecutar_escritura(cypher: str, **params: Any) -> List[Dict[str, Any]]:
-    """Corre una consulta de escritura dentro de una transaccion gestionada.
-
-    execute_write reintenta automaticamente ante errores transitorios de red,
-    algo que importa cuando la base vive en la nube y no en localhost.
-    """
+    """Escritura en transaccion gestionada: reintenta fallos de red."""
     with sesion() as s:
         resultado = s.execute_write(
             lambda tx: [registro.data() for registro in tx.run(cypher, **params)]
@@ -85,12 +74,12 @@ def ejecutar_escritura(cypher: str, **params: Any) -> List[Dict[str, Any]]:
 
 
 def verificar_conectividad() -> Dict[str, Any]:
-    """Confirma que la instancia en la nube responde. Usado por Fase 0."""
+    """Confirma que la instancia en la nube responde."""
     driver = obtener_driver()
     driver.verify_connectivity()
 
-    # El procedimiento de version es informativo: si Aura no lo expone al
-    # usuario, no se considera un fallo de conectividad.
+    # La version es informativa: si Aura no expone el procedimiento, no es
+    # un fallo de conectividad.
     try:
         filas = ejecutar_lectura(
             """

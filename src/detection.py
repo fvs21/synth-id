@@ -1,32 +1,16 @@
-"""Consultas especializadas de grafo: las que no se escriben en SQL (Fase 4).
+"""Las seis consultas especializadas de grafo.
 
-Las seis consultas del proyecto. Cada una devuelve estructuras de Python
-limpias, no objetos del driver, para que la API y los tests no dependan de
-tipos de Neo4j.
-
-LA LISTA BLANCA DE RELACIONES
------------------------------
-Todos los traversals recorren solo `REL_PII`, que son las relaciones a
-atributos *identificadores*. `TRABAJA_EN` queda deliberadamente fuera:
-cientos de personas legitimas comparten empleador, asi que incluirlo conecta
-el grafo entero y vuelve inutil la deteccion. Medido sobre los datos semilla,
-desde una solicitud legitima a 8 saltos: 0 solicitudes alcanzadas sin
-`TRABAJA_EN`, 98 con el.
-
-LAS COTAS DE PROFUNDIDAD
-------------------------
-Toda consulta de longitud variable lleva cota superior explicita. Un
-traversal sin cota sobre un grafo con nodos hub no termina en un tiempo util.
-Las cotas se interpolan en el Cypher porque Cypher no acepta parametros en
-los rangos de longitud (`*1..$n` es invalido); por eso se validan como enteros
-antes de interpolarlas.
+Los traversals recorren solo `REL_PII`: `TRABAJA_EN` queda fuera porque
+cientos de personas comparten empleador y eso conecta el grafo entero
+(medido a 8 saltos: 0 solicitudes alcanzadas sin esa relacion, 98 con ella).
+Las cotas se interpolan porque Cypher no acepta `*1..$n`.
 """
 
 from typing import Any, Dict, List, Optional
 
 from src.db import ejecutar_lectura
 
-# Relaciones a atributos identificadores. El orden no importa.
+# Relaciones a atributos identificadores.
 REL_PII = (
     "USA_TELEFONO|USA_EMAIL|RESIDE_EN|ORIGINADA_EN|DEPOSITO_A"
     "|PRESENTADA_POR|TIENE_CURP"
@@ -42,8 +26,7 @@ PROPIEDAD_PII = {
     "Curp": "valor",
 }
 
-# Tipos colgados directamente de la Solicitud, con su relacion. `Curp` no
-# esta aqui porque pende de la Persona, no de la Solicitud.
+# Tipos colgados de la Solicitud. `Curp` no esta: pende de la Persona.
 HUBS_SOPORTADOS = {
     "Telefono": "USA_TELEFONO",
     "Email": "USA_EMAIL",
@@ -76,10 +59,7 @@ def _cota(valor: int, maximo: int = 12) -> int:
 def atributos_compartidos(solicitud_id: str) -> List[Dict[str, Any]]:
     """Atributos de identidad que esta solicitud comparte con otras.
 
-    Es la consulta que correria el motor de decision al recibir una solicitud
-    nueva: un telefono compartido con 11 solicitudes de nombres distintos es
-    la bandera roja. Usa `*1..2` porque la CURP pende de la Persona, no de la
-    Solicitud.
+    Usa `*1..2` porque la CURP pende de la Persona, no de la Solicitud.
     """
     return ejecutar_lectura(
         """
@@ -102,11 +82,9 @@ def atributos_compartidos(solicitud_id: str) -> List[Dict[str, Any]]:
 # 2. El anillo completo: traversal de longitud variable
 # --------------------------------------------------------------------------
 def anillo_de(solicitud_id: str, profundidad: int = 8) -> List[Dict[str, Any]]:
-    """Todas las solicitudes conectadas a esta, hasta `profundidad` saltos.
+    """Solicitudes conectadas a esta, hasta `profundidad` saltos.
 
-    Una sola clausula devuelve el clúster completo sin importar si sus
-    miembros estan a 2 o a 8 saltos. En SQL esto exige un CTE recursivo sobre
-    la union de cinco tablas puente, con control manual de nodos visitados.
+    Una sola clausula devuelve el cluster completo, esten a 2 o a 8 saltos.
     """
     return ejecutar_lectura(
         """
@@ -124,10 +102,7 @@ def anillo_de(solicitud_id: str, profundidad: int = 8) -> List[Dict[str, Any]]:
 def personas_del_anillo(
     solicitud_id: str, profundidad: int = 8
 ) -> List[Dict[str, Any]]:
-    """Nombres de los solicitantes del anillo, incluido el de origen.
-
-    Lo usa el scoring para distinguir una familia de un anillo de fraude.
-    """
+    """Nombres del anillo, incluido el de origen. Lo usa la regla familiar."""
     return ejecutar_lectura(
         """
         MATCH (s:Solicitud {{id: $id}})
@@ -149,10 +124,9 @@ def personas_del_anillo(
 def ruta_entre(
     solicitud_a: str, solicitud_b: str, max_saltos: int = 10
 ) -> Optional[Dict[str, Any]]:
-    """Camino mas corto entre dos solicitudes, con los nodos intermedios.
+    """Camino mas corto entre dos solicitudes: la cadena de evidencia.
 
-    Responde la pregunta del analista: "estas dos personas dicen no conocerse,
-    como estan conectadas?". El resultado ES la evidencia que se presenta.
+    Cada salto es un dato verificable, asi que el resultado ES la evidencia.
     """
     filas = ejecutar_lectura(
         """
@@ -176,10 +150,7 @@ def ruta_entre(
 # 4. La firma de la identidad sintetica
 # --------------------------------------------------------------------------
 def curps_multiples(min_variantes: int = 2) -> List[Dict[str, Any]]:
-    """CURPs usadas por mas de un nombre: el patron sintetico puro.
-
-    Un fragmento real (la CURP) recombinado con nombres inventados.
-    """
+    """CURPs usadas por mas de un nombre: un dato real con nombres inventados."""
     return ejecutar_lectura(
         """
         MATCH (c:Curp)<-[:TIENE_CURP]-(p:Persona)
@@ -198,11 +169,7 @@ def curps_multiples(min_variantes: int = 2) -> List[Dict[str, Any]]:
 # 5. Nodos hub: atributos con grado anomalo
 # --------------------------------------------------------------------------
 def hubs(tipo: str, minimo_personas: int = 3) -> List[Dict[str, Any]]:
-    """Atributos usados por `minimo_personas` personas distintas o mas.
-
-    Un dispositivo desde el que solicitan ocho personas sin parentesco es la
-    senal mas limpia de una granja de solicitudes.
-    """
+    """Atributos usados por `minimo_personas` personas distintas o mas."""
     if tipo not in HUBS_SOPORTADOS:
         raise ValueError(
             "Tipo no soportado: {!r}. Validos: {}".format(
@@ -237,13 +204,10 @@ def hubs(tipo: str, minimo_personas: int = 3) -> List[Dict[str, Any]]:
 # 6. Barrido global: todos los atributos compartidos de la base
 # --------------------------------------------------------------------------
 def anillos_globales(min_solicitudes: int = 2) -> List[Dict[str, Any]]:
-    """Todo atributo de identidad compartido por varias solicitudes.
+    """Barrido de la base: todo atributo compartido por varias solicitudes.
 
-    Es el tablero del analista: un barrido de la base entera que no parte de
-    una solicitud concreta. Para un volumen de produccion, el equivalente
-    escalable es proyectar el grafo y correr Weakly Connected Components con
-    GDS; esta version no necesita el plugin y basta para el tamano del
-    proyecto.
+    A escala de produccion el equivalente seria Weakly Connected Components
+    con GDS; esta version no necesita el plugin.
     """
     return ejecutar_lectura(
         """
